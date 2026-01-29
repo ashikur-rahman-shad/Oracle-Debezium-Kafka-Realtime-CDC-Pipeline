@@ -1,16 +1,6 @@
 Remember, if you get permission errors, use `sudo` in shell
-## Pre-requisites
-Java Development Kit 
-We used `java -version`
-   ```bash
-openjdk version "21.0.9" 2025-10-21
-OpenJDK Runtime Environment (build 21.0.9+10-Ubuntu-124.04)
-OpenJDK 64-Bit Server VM (build 21.0.9+10-Ubuntu-124.04, mixed mode, sharing)
-   ```
 
-
-## Download Kafka from website and Extract it
-
+## Download Kafka from website and Extract it (on all servers)
 ```bash
 cd Downloads/
 wget https://downloads.apache.org/kafka/4.1.1/kafka_2.13-4.1.1.tgz 
@@ -18,25 +8,17 @@ sudo tar -xzf kafka_2.13-4.1.1.tgz -C /opt
 sudo mv /opt/kafka_2.13-4.1.1 /opt/kafka
 cd /opt/kafka
 ```
-You can install it on any folder literally. But if you 
+You can install it on any folder literally. opt/kafka is recommended
+
 ## Configure server properties for each server
 
-Go to the Kafka installation folder
-```bash
-cd /opt/kafka
-```
-
-Edit the following file:
-```bash
-nano config/server.properties
-```
-
-Update these lines:
-```
+Edit `config/server.properties`:
+```yaml
 node.id= set your unique number
-controller.quorum.voters=1@10.11.200.99:9093,2@10.11.205.205:9093,3@10.11.205.206:9093
+controller.quorum.voters=<node id of server1>@<ip of server1>:9093,<node id of server2>@<ip of server2>:9093,<node id of server3>@<ip of server3>:9093
 listeners=PLAINTEXT://<CURRENT SERVER IP>:9092,CONTROLLER://<CURRENT SERVER IP>:9093
 advertised.listeners=PLAINTEXT://<CURRENT SERVER IP>:9092,CONTROLLER://<CURRENT SERVER IP>:9093
+log.dirs= #set log directory to anywhere other than temp folder
 
 ## Comment this line
 #controller.quorum.bootstrap.servers=<IP_1>:9093,<IP_2>:9093,<IP_3>:9093
@@ -47,44 +29,56 @@ listeners=PLAINTEXT://:9092,CONTROLLER://:9093
 controller.listener.names=CONTROLLER 
 ```
 
+---
 
 ## Configure KRaft
+
+### Generate key (DO THIS ONCE ONLY, and use the same cluster ID on all servers)
+
 For bash/zsh
 ```bash
-KAFKA_CLUSTER_ID=$(/opt/kafka/bin/kafka-storage.sh random-uuid)
+KAFKA_CLUSTER_ID=$(./bin/kafka-storage.sh random-uuid)
 ```
 For fish shell
 ```fish
-set KAFKA_CLUSTER_ID $(/opt/kafka/bin/kafka-storage.sh random-uuid)
+set KAFKA_CLUSTER_ID $(./bin/kafka-storage.sh random-uuid)
 ```
 Check the Cluster ID (Optional)
 ```bash
-echo "Cluster ID: $KAFKA_CLUSTER_ID"
+echo "$KAFKA_CLUSTER_ID"
 ```
+
+***==Save this cluster ID==***
+
+---
+
+### Format Storage (Do this on all servers)
 
 Stop server if running
 ```bash
-sudo /opt/kafka/bin/kafka-server-stop.sh
+sudo ./bin/kafka-server-stop.sh
 ```
 Delete older logs if exists
 ```bash
-sudo rm -rf /tmp/kraft-combined-logs/
-sudo rm -rf /tmp/kafka-logs
+sudo rm -rf ./kraft-combined-logs/
+sudo rm -rf ./kafka-logs
 ```
 
 Format the log directory (multi-nodes). Make sure all clusters use the SAME CLUSTER ID
 ```bash
-sudo /opt/kafka/bin/kafka-storage.sh format -t <KAFKA_CLUSTER_ID> -c /opt/kafka/config/server.properties
+sudo ./bin/kafka-storage.sh format -t KAFKA_CLUSTER_ID -c ./config/server.properties
 ```
+Example:
+sudo ./bin/kafka-storage.sh format -t yADtBHEZQG6Y13LVUdQCtA -c ./config/server.properties
 
-### Allow firewall
+### Allow firewall (Do this on all servers)
 ```
 sudo firewall-cmd --add-port=9092/tcp --permanent
 sudo firewall-cmd --add-port=9093/tcp --permanent
 sudo firewall-cmd --reload
 ```
 
-## Start Kafka Server
+## Start Kafka Server (Do this on all servers)
 ```bash
 sudo bin/kafka-server-start.sh config/server.properties
 ```
@@ -106,13 +100,66 @@ View cluster ID in future:
 ```
 *You can also use broker address instead of  localhost*
 
-# Kafka UI
+## Create Kafka Service (Do this on all servers)
+This will autostart kafka with boot.
+
+Edit this file
+```bash
+sudo nano /etc/systemd/system/kafka.service
+```
+sudo micro /etc/systemd/system/kafka.service
+
+Make sure to update the ExecStart and ExecStop based on your kafka installation location
+```ini
+[Unit]
+Description=Apache Kafka Server
+Documentation=http://kafka.apache.org/documentation.html
+Requires=network.target
+
+[Service]
+Type=simple
+User=root
+Environment="JAVA_HOME=/usr/lib/jvm/java-21-openjdk-21.0.8.0.9-1.0.1.el8.x86_64/"
+ExecStart=/u02/kafka/kafka_2.13-4.1.1/bin/kafka-server-start.sh /u02/kafka/kafka_2.13-4.1.1/config/server.properties
+ExecStop=/u02/kafka/kafka_2.13-4.1.1/bin/kafka-server-stop.sh
+Restart=on-failure
+RestartSec=10s
+
+[Install]
+WantedBy=multi-user.target
+```
+
+Check if SELinux is enabled or not:
+```bash
+sestatus
+```
+
+If enabled, allow your kafka installation locations (this may require when running binary from unusual locations)
+```bash
+# 1. Label the binaries as executable service files
+sudo semanage fcontext -a -t bin_t "/u02/kafka/kafka_2.13-4.1.1/bin(/.*)?"
+
+# 2. Label the logs and data directory (if separate)
+sudo semanage fcontext -a -t var_log_t "/u02/kafka/kafka_2.13-4.1.1/kraft-logs(/.*)?"
+
+# 3. Apply these changes to the actual files
+sudo restorecon -Rv /u02/kafka/
+```
+
+Activate service
+```bash
+sudo systemctl daemon-reload
+sudo systemctl start kafka
+sudo systemctl enable kafka
+```
+
+# Kafka UI (can be installed on one or more servers)
 
 ## Pre-requisites
 
 ### Install docker
 ```bash
-sudo apt install -y docker docker-compose
+sudo apt install -y docker
 ```
 
 Docker version we used
@@ -163,6 +210,8 @@ Check if cluster is reachable or not (optional)
 /opt/kafka/bin/kafka-broker-api-versions.sh \
 --bootstrap-server 10.11.200.99:9092
 ```
+
+**Doing the following on one server will sync changes to all servers in the cluster**
 
 ### Create Topic
 ```bash
