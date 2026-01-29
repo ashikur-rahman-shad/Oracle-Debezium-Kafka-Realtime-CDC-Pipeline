@@ -5,6 +5,7 @@ dnf install -y oracle-database-preinstall-19c
 
 #### Download and install the Oracle 19c RPM
 https://www.oracle.com/apac/database/technologies/oracle19c-linux-downloads.html
+Go to the download location and run the following command
 ```bash
 yum localinstall -y oracle-database-ee-19c-1.0-1.x86_64.rpm
 ```
@@ -40,14 +41,14 @@ source ~/.bash_profile
 If firewall is enabled, allow port 1521 for TCP
 ```bash
 firewall-cmd --permanent --add-port=1521/tcp
-firewall-cmd --reload
+firewall-cmcd --reload
 ```
 
-#### Some quick commands
 Check Container:
 ```Oracle
 SHOW CON_NAME;
 ```
+
 To Switch to PDB Session:
 ```SQL Oracle
 SELECT name, open_mode FROM v$pdbs;
@@ -61,3 +62,7 @@ To switch to CDB Session:
 ALTER SESSION SET CONTAINER=CDB$ROOT;
 ```
 
+Change system password:
+```sql
+ALTER USER system IDENTIFIED BY "YourNewPassword123";
+```
